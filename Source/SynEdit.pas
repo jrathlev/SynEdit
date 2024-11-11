@@ -37,6 +37,16 @@ Known Issues:
 - Undo is buggy when dealing with Hard Tabs (when inserting text after EOL and
   when trimming).
 
+-------------------------------------------------------------------------------
+J. Rathlev (kontakt(a)rathlev-home.de) - 2009-03-03
+New properties (March 2009):
+  - GutterWidth
+  - IndentPos
+Changes (March 2024):
+  - AdditionalIdentChars and AdditionalWordBreakChars are TCharArray (instead of TSysCharSet)
+  - CharInSet replaced by CharInArray
+  - raSkip function in text replacement
+
 -------------------------------------------------------------------------------}
 //todo: remove SynEdit Clipboard Format?
 //todo: in WordWrap mode, parse lines only once in PaintLines()
@@ -52,25 +62,25 @@ unit SynEdit;
 interface
 
 uses
-  Controls,
-  Contnrs,
-  Graphics,
-  Forms,
-  StdCtrls,
-  ExtCtrls,
-  Windows,
-  Messages,
+  Vcl.Controls,
+  System.Contnrs,
+  Vcl.Graphics,
+  Vcl.Forms,
+  Vcl.StdCtrls,
+  Vcl.ExtCtrls,
+  Winapi.Windows,
+  Winapi.Messages,
   {$IFDEF SYN_COMPILER_4_UP}
-  StdActns,
-  Dialogs,
+  Vcl.StdActns,
+  Vcl.Dialogs,
   {$ENDIF}
   {$IFDEF SYN_COMPILER_7}
-  Themes,
+  Vcl.Themes,
   {$ENDIF}
   {$IFDEF SYN_COMPILER_17_UP}
-  Types, UITypes,
+  System.Types, System.UITypes,
   {$ENDIF}
-  Imm,
+  Winapi.Imm,
   SynUnicode,
   SynTextDrawer,
   SynEditTypes,
@@ -85,11 +95,11 @@ uses
   SynEditCodeFolding,
 {$ENDIF}
 {$IFDEF UNICODE}
-  WideStrUtils,
+  System.WideStrUtils,
 {$ENDIF}
-  Math,
-  SysUtils,
-  Classes;
+  System.Math,
+  System.SysUtils,
+  System.Classes;
 
 const
 {$IFNDEF SYN_COMPILER_3_UP}
@@ -520,8 +530,8 @@ type
     FChainUndoAdded: TNotifyEvent;
     FChainRedoAdded: TNotifyEvent;
 
-    FAdditionalWordBreakChars: TSysCharSet;
-    FAdditionalIdentChars: TSysCharSet;
+    FAdditionalWordBreakChars: TCharArray;
+    FAdditionalIdentChars: TCharArray;
 
 {$IFDEF SYN_COMPILER_6_UP}
     FSearchNotFound: TCustomSynEditSearchNotFoundEvent;
@@ -583,6 +593,7 @@ type
     function LeftSpaces(const Line: UnicodeString): Integer;
     function LeftSpacesEx(const Line: UnicodeString; WantTabs: Boolean; CalcAlways : Boolean = False): Integer;
     function GetLeftSpacing(CharCount: Integer; WantTabs: Boolean): UnicodeString;
+    function GetIndentPos : integer; // JR : 2009-03-03 (060910)
     procedure LinesChanging(Sender: TObject);
     procedure MoveCaretAndSelection(const ptBefore, ptAfter: TBufferCoord;
       SelectionCommand: Boolean);
@@ -595,8 +606,8 @@ type
     function ScanFrom(Index: Integer): Integer;
     procedure ScrollTimerHandler(Sender: TObject);
     procedure SelectedColorsChanged(Sender: TObject);
-    procedure SetAdditionalIdentChars(const Value: TSysCharSet);
-    procedure SetAdditionalWordBreakChars(const Value: TSysCharSet);
+    procedure SetAdditionalIdentChars(const Value: TCharArray);
+    procedure SetAdditionalWordBreakChars(const Value: TCharArray);
     procedure SetBlockBegin(Value: TBufferCoord);
     procedure SetBlockEnd(Value: TBufferCoord);
     procedure SetBorderStyle(Value: TSynBorderStyle);
@@ -870,6 +881,7 @@ type
     function WordEndEx(const XY: TBufferCoord): TBufferCoord; virtual;
     function PrevWordPos: TBufferCoord; virtual;
     function PrevWordPosEx(const XY: TBufferCoord): TBufferCoord; virtual;
+    function MakeCharArray (const CharSet : string) : TCharArray;
 
     function PixelsToRowColumn(aX, aY: Integer): TDisplayCoord;
     function PixelsToNearestRowColumn(aX, aY: Integer): TDisplayCoord;
@@ -929,8 +941,8 @@ type
     procedure UnCollapseFoldType(FoldType : Integer);
 {$ENDIF}
   public
-    property AdditionalIdentChars: TSysCharSet read FAdditionalIdentChars write SetAdditionalIdentChars;
-    property AdditionalWordBreakChars: TSysCharSet read FAdditionalWordBreakChars write SetAdditionalWordBreakChars;
+    property AdditionalIdentChars: TCharArray read FAdditionalIdentChars write SetAdditionalIdentChars;
+    property AdditionalWordBreakChars: TCharArray read FAdditionalWordBreakChars write SetAdditionalWordBreakChars;
     property BlockBegin: TBufferCoord read GetBlockBegin write SetBlockBegin;
     property BlockEnd: TBufferCoord read GetBlockEnd write SetBlockEnd;
     property CanPaste: Boolean read GetCanPaste;
@@ -949,9 +961,11 @@ type
     property CharWidth: Integer read FCharWidth;
     property Color;
     property Font: TFont read GetFont write SetFont;
+    property GutterWidth : integer read fGutterWidth;  // added JR : 2009-03-03 (2006-10-28)
     property Highlighter: TSynCustomHighlighter
       read FHighlighter write SetHighlighter;
     property HintMode: TSynHintMode read FHintMode write FHintMode default shmDefault;
+    property IndentPos : integer read GetIndentPos;    // JR : 2009-03-03 (060910)
     property LeftChar: Integer read FLeftChar write SetLeftChar;
     property LineHeight: Integer read FTextHeight;
     property LinesInWindow: Integer read FLinesInWindow;
@@ -1189,15 +1203,22 @@ implementation
 
 uses
 {$IFDEF SYN_COMPILER_6_UP}
-  Consts,
+  Vcl.Consts,
 {$ENDIF}
 {$IFDEF SYN_COMPILER_18_UP}
-  AnsiStrings,
+  System.AnsiStrings,
 {$ENDIF}
-  Clipbrd,
-  ShellAPI,
+  System.Character,
+  Vcl.Clipbrd,
+  Winapi.ShellAPI,
   SynEditWordWrap,
   SynEditStrConst;
+
+// replacement for CharInSet to support Unicode characters - JR March 2024
+function CharInArray (AChar : Char; const CharArray : TCharArray) : boolean;
+begin
+  Result:=AChar.IsInArray(CharArray);
+  end;
 
 function CeilOfIntDiv(Dividend: Cardinal; Divisor: Word): Word;
 Var
@@ -1853,7 +1874,7 @@ end;
 procedure TCustomSynEdit.HideCaret;
 begin
   if sfCaretVisible in FStateFlags then
-    if Windows.HideCaret(Handle) then
+    if Winapi.Windows.HideCaret(Handle) then
       Exclude(FStateFlags, sfCaretVisible);
 end;
 
@@ -2140,6 +2161,13 @@ begin
     Exclude(FStateFlags, sfIgnoreNextChar);
 end;
 
+function TCustomSynEdit.GetIndentPos : integer; // JR : 2009-03-03
+begin
+  if CaretY>=1 then Result:=LeftSpaces(Lines[CaretY-1])
+  else Result:=0;
+  if Result=0 then Result:=TabWidth;
+  end;
+
 function TCustomSynEdit.LeftSpaces(const Line: UnicodeString): Integer;
 begin
   Result := LeftSpacesEx(Line, False);
@@ -2316,7 +2344,7 @@ begin
   end;
 
   SetFocus;
-  Windows.SetFocus(Handle);
+  Winapi.Windows.SetFocus(Handle);
 end;
 
 procedure TCustomSynEdit.MouseMove(Shift: TShiftState; X, Y: Integer);
@@ -2704,13 +2732,13 @@ begin
         if FGutter.Gradient then
         begin
           SetBkMode(DC, TRANSPARENT);
-          Windows.ExtTextOutW(DC, vTextOffset,
+          Winapi.Windows.ExtTextOutW(DC, vTextOffset,
             rcLine.Top + ((FTextHeight - Integer(TextSize.cy)) div 2), 0,
             @rcLine, PWideChar(s), Length(s), nil);
           SetBkMode(DC, OPAQUE);
         end
         else
-          Windows.ExtTextOutW(DC, vTextOffset,
+          Winapi.Windows.ExtTextOutW(DC, vTextOffset,
             rcLine.Top + ((FTextHeight - Integer(TextSize.cy)) div 2), ETO_OPAQUE,
             @rcLine, PWideChar(s), Length(s), nil);
 
@@ -4938,7 +4966,7 @@ procedure TCustomSynEdit.ShowCaret;
 begin
   if not (eoNoCaret in Options) and not (sfCaretVisible in FStateFlags) then
   begin
-    if Windows.ShowCaret(Handle) then
+    if Winapi.Windows.ShowCaret(Handle) then
       Include(FStateFlags, sfCaretVisible);
   end;
 end;
@@ -5139,7 +5167,7 @@ end;
 
 {$IFDEF SYN_COMPILER_12_UP}
 type
-  PHintInfo = Controls.PHintInfo;
+  PHintInfo = Vcl.Controls.PHintInfo;
 {$ENDIF}
 
 procedure TCustomSynEdit.CMHintShow(var Msg: TMessage);
@@ -5308,8 +5336,8 @@ begin
   end
   else
   begin
-   {$IFDEF SYN_COMPILER_18_UP}AnsiStrings.{$ENDIF}StrLCopy(PAnsiChar(Msg.Text), PAnsiChar(AnsiString(Text)), Msg.TextMax - 1);
-    Msg.Result := {$IFDEF SYN_COMPILER_18_UP}AnsiStrings.{$ENDIF}StrLen(PAnsiChar(Msg.Text));
+   {$IFDEF SYN_COMPILER_18_UP}System.AnsiStrings.{$ENDIF}StrLCopy(PAnsiChar(Msg.Text), PAnsiChar(AnsiString(Text)), Msg.TextMax - 1);
+    Msg.Result := {$IFDEF SYN_COMPILER_18_UP}System.AnsiStrings.{$ENDIF}StrLen(PAnsiChar(Msg.Text));
   end;
 end;
 
@@ -5583,7 +5611,7 @@ begin
   if Focused or FAlwaysShowCaret then
     Exit;
   HideCaret;
-  Windows.DestroyCaret;
+  Winapi.Windows.DestroyCaret;
   if FHideSelection and SelAvail then
     InvalidateSelection;
 end;
@@ -8572,12 +8600,58 @@ begin
   end;
 end;
 
-procedure TCustomSynEdit.SetAdditionalIdentChars(const Value: TSysCharSet);
+// Create an array of Char from a numeric character list - JR March 2024
+// e.g. MakeCharArray('#$A7,#$A9,#$C0..#$D6,#$D8..#$F6,#$F8..#$FF');
+function TCustomSynEdit.MakeCharArray (const CharSet : string) : TCharArray;
+var
+  i,j,k,m,n1,n2,len : integer;
+  s,t   : string;
+
+  function GetCharCode (sc : string; var val : integer) : boolean;
+  begin
+    Result:=length(sc)>0;
+    if Result then begin
+      if sc[1]='#' then delete(sc,1,1);     //remove #
+      Result:=TryStrToInt(sc,val);
+      end;
+    end;
+
+begin
+  Result:=[];
+  len:=length(CharSet);
+  if len>0 then begin
+    i:=1; j:=1;
+    repeat
+      i:=Pos(',',CharSet,i);
+      if i=0 then i:=len+1;
+      s:=copy(CharSet,j,i-j);
+      k:=pos('..',s);
+      if k>0 then begin
+        t:=copy(s,1,k-1);
+        if GetCharCode(t,n1) then begin
+          delete(s,1,k+1);
+          if GetCharCode(s,n2) then begin
+            k:=length(Result);
+            SetLength(Result,k+n2-n1+1);
+            for m:=k to High(Result) do Result[m]:=Char(n1+m-k);
+            end;
+          end;
+        end
+      else if GetCharCode(s,n1) then begin
+        SetLength(Result,length(Result)+1);
+        Result[High(Result)]:=Char(n1);
+        end;
+      inc(i); j:=i;
+      until i>len;
+    end
+  end;
+
+procedure TCustomSynEdit.SetAdditionalIdentChars(const Value: TCharArray);
 begin
   FAdditionalIdentChars := Value;
 end;
 
-procedure TCustomSynEdit.SetAdditionalWordBreakChars(const Value: TSysCharSet);
+procedure TCustomSynEdit.SetAdditionalWordBreakChars(const Value: TCharArray);
 begin
   FAdditionalWordBreakChars := Value;
 end;
@@ -8650,7 +8724,7 @@ begin
       else
       begin
         HideCaret;
-        Windows.DestroyCaret;
+        Winapi.Windows.DestroyCaret;
       end;
     end;
   end;
@@ -9018,8 +9092,8 @@ begin
         end
         else
           nAction := raReplace;
-        if nAction = raSkip then
-          Dec(Result)
+        if nAction = raSkip then            // Result = 2   - JR 2017-07
+          Inc(Result)
         else begin
           // user has been prompted and has requested to silently replace all
           // so turn off prompting
@@ -9040,14 +9114,15 @@ begin
         end;
         // fix the caret position and the remaining results
         if not bBackward then begin
-          InternalCaretX := nFound + nReplaceLen;
-          if (nSearchLen <> nReplaceLen) and (nAction <> raSkip) then
-          begin
-            Inc(iResultOffset, nReplaceLen - nSearchLen);
-            if (FActiveSelectionMode <> smColumn) and (CaretY = ptEnd.Line) then
-            begin
-              Inc(ptEnd.Char, nReplaceLen - nSearchLen);
-              BlockEnd := ptEnd;
+          if nAction=raSkip then InternalCaretX := nFound + nSearchLen  // JR 2017-07
+          else begin
+            InternalCaretX := nFound + nReplaceLen;
+            if (nSearchLen <> nReplaceLen) then begin
+              Inc(iResultOffset, nReplaceLen - nSearchLen);
+              if (FActiveSelectionMode <> smColumn) and (CaretY = ptEnd.Line) then begin
+                Inc(ptEnd.Char, nReplaceLen - nSearchLen);
+                BlockEnd := ptEnd;
+              end;
             end;
           end;
         end;
@@ -10044,7 +10119,7 @@ end;
 
 procedure TCustomSynEdit.InvalidateRect(const aRect: TRect; aErase: Boolean);
 begin
-  Windows.InvalidateRect(Handle, @aRect, aErase);
+  Winapi.Windows.InvalidateRect(Handle, @aRect, aErase);
 end;
 
 procedure TCustomSynEdit.DoBlockIndent;
@@ -11043,9 +11118,9 @@ begin
     Result := AChar >= #33;
 
   if Assigned(Highlighter) then
-    Result := Result or CharInSet(AChar, Highlighter.AdditionalIdentChars)
+    Result := Result or CharInArray(AChar, Highlighter.AdditionalIdentChars)   // JR March 2024
   else
-    Result := Result or CharInSet(AChar, Self.AdditionalIdentChars);
+    Result := Result or CharInArray(AChar, Self.AdditionalIdentChars);         // JR March 2024
 
   Result := Result and not IsWordBreakChar(AChar);
 end;
@@ -11080,13 +11155,13 @@ begin
 
   if Assigned(Highlighter) then
   begin
-    Result := Result or CharInSet(AChar, Highlighter.AdditionalWordBreakChars);
-    Result := Result and not CharInSet(AChar, Highlighter.AdditionalIdentChars);
+    Result := Result or CharInArray(AChar, Highlighter.AdditionalWordBreakChars);   // JR March 2024
+    Result := Result and not CharInArray(AChar, Highlighter.AdditionalIdentChars);  // JR March 2024
   end
   else
   begin
-    Result := Result or CharInSet(AChar, Self.AdditionalWordBreakChars);
-    Result := Result and not CharInSet(AChar, Self.AdditionalIdentChars);
+    Result := Result or CharInArray(AChar, Self.AdditionalWordBreakChars);          // JR March 2024
+    Result := Result and not CharInArray(AChar, Self.AdditionalIdentChars);         // JR March 2024
   end;
 end;
 
@@ -11228,7 +11303,7 @@ procedure TCustomSynEdit.DefineProperties(Filer: TFiler);
 {$IFDEF SYN_COMPILER_6_UP}
   function CollectionsEqual(C1, C2: TCollection): Boolean;
   begin
-    Result := Classes.CollectionsEqual(C1, C2, nil, nil);
+    Result := System.Classes.CollectionsEqual(C1, C2, nil, nil);
   end;
 {$ENDIF}
 
