@@ -24,6 +24,11 @@ $Id: SynEditHighlighter.pas,v 1.9.1 2012/09/12 08:17:19 CodehunterWorks Exp $
 You may retrieve the latest version of this file at the SynEdit home page,
 located at http://SynEdit.SourceForge.net
 
+-------------------------------------------------------------------------------
+J. Rathlev (kontakt(a)rathlev-home.de) - March 2024
+Changes:
+  AdditionalIdentChars and AdditionalWordBreakChars are TCharArray  (instead of TSysCharSet)
+
 Known Issues:
 -------------------------------------------------------------------------------}
 
@@ -34,15 +39,15 @@ unit SynEditHighlighter;
 interface
 
 uses
-  Graphics,
-  Windows,
-  Registry,
-  IniFiles,
+  Vcl.Graphics,
+  Winapi.Windows,
+  System.Win.Registry,
+  System.IniFiles,
   SynEditTypes,
   SynEditMiscClasses,
+  System.SysUtils,
+  System.Classes,
   SynUnicode,
-  SysUtils,
-  Classes,
   SynEditHighlighterOptions;
 
 type
@@ -120,14 +125,14 @@ type
     FAttrChangeHooks: TSynNotifyEventChain;
     FUpdateCount: Integer;
     FEnabled: Boolean;
-    FAdditionalWordBreakChars: TSysCharSet;
-    FAdditionalIdentChars: TSysCharSet;
+    FAdditionalWordBreakChars: TCharArray;
+    FAdditionalIdentChars: TCharArray;
     FExportName: string;
     FOptions: TSynEditHighlighterOptions;
     function GetExportName: string;
     procedure SetEnabled(const Value: Boolean);
-    procedure SetAdditionalIdentChars(const Value: TSysCharSet);
-    procedure SetAdditionalWordBreakChars(const Value: TSysCharSet);
+    procedure SetAdditionalIdentChars(const Value: TCharArray);
+    procedure SetAdditionalWordBreakChars(const Value: TCharArray);
   protected
     FCasedLine: PWideChar;
     FCasedLineStr: UnicodeString;
@@ -214,8 +219,8 @@ type
     property FriendlyLanguageName: UnicodeString read GetFriendlyLanguageNameProp;
     property LanguageName: string read GetLanguageNameProp;
   public
-    property AdditionalIdentChars: TSysCharSet read FAdditionalIdentChars write SetAdditionalIdentChars;
-    property AdditionalWordBreakChars: TSysCharSet read FAdditionalWordBreakChars write SetAdditionalWordBreakChars;
+    property AdditionalIdentChars: TCharArray read FAdditionalIdentChars write SetAdditionalIdentChars;
+    property AdditionalWordBreakChars: TCharArray read FAdditionalWordBreakChars write SetAdditionalWordBreakChars;
     property AttrCount: Integer read GetAttribCount;
     property Attribute[Index: Integer]: TSynHighlighterAttributes
       read GetAttribute;
@@ -269,7 +274,7 @@ implementation
 uses
   SynEditMiscProcs,
 {$IFDEF UNICODE}
-  WideStrUtils,
+  System.WideStrUtils,
 {$ENDIF}
   SynEditStrConst;
 
@@ -1174,13 +1179,13 @@ begin
 end;
 
 procedure TSynCustomHighlighter.SetAdditionalIdentChars(
-  const Value: TSysCharSet);
+  const Value: TCharArray);
 begin
   FAdditionalIdentChars := Value;
 end;
 
 procedure TSynCustomHighlighter.SetAdditionalWordBreakChars(
-  const Value: TSysCharSet);
+  const Value: TCharArray);
 begin
   FAdditionalWordBreakChars := Value;
 end;
